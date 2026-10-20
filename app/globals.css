@@ -1,26 +1,42 @@
 @import "tailwindcss";
 
+/* палитра старого ютуба (~2020) */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #f9f9f9;
+  --surface: #ffffff;
+  --foreground: #030303;
+  --muted: #606060;
+  --line: #e5e5e5;
+  --field-line: #cccccc;
+  --button-bg: #f8f8f8;
+  --yt-red: #ff0000;
+  --subscribe: #cc0000;
+  --link: #065fd4;
+  --sign-in: #1c62b9;
+  --player: #000000;
 }
 
 @theme inline {
   --color-background: var(--background);
+  --color-surface: var(--surface);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --color-muted: var(--muted);
+  --color-line: var(--line);
+  --color-field-line: var(--field-line);
+  --color-button-bg: var(--button-bg);
+  --color-yt-red: var(--yt-red);
+  --color-subscribe: var(--subscribe);
+  --color-link: var(--link);
+  --color-sign-in: var(--sign-in);
+  --color-player: var(--player);
+  --font-sans: var(--font-roboto), Arial, sans-serif;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+html {
+  color-scheme: light;
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
 }
