@@ -1,4 +1,5 @@
 // Порт botgovno/youtube.py: поиск самых непросматриваемых видео по запросу.
+import { kvGet, kvSet } from "./kv";
 
 const HEADERS = {
   "User-Agent":
@@ -141,28 +142,47 @@ async function resolveThumb(video: Video) {
   video.thumb = `https://i.ytimg.com/vi/${video.id}/hqdefault.jpg`;
 }
 
+// Выдача по слову кэшируется: один поиск — 10 страниц ютуба (~12 МБ HTML), и разбор их — основной
+// расход процессора на Vercel. Слова повторяются, а свежесть на несколько часов не критична.
+const SEARCH_TTL = 6 * 60 * 60;
+
+/** Вся выдача по запросу: свежие и 10+ лет, через одно, самые непросматриваемые первыми. */
+async function searchAll(query: string): Promise<Video[]> {
+  const key = `yt:${query}`;
+  const cached = await kvGet(key).catch(() => null);
+  if (cached) return JSON.parse(cached);
+
+  const seen = new Set<string>();
+  const [fresh, old] = await Promise.all([
+    collect(FILTERS.map((sp) => [query, sp]), seen),
+    collect(oldQueries(query).map((q) => [q, ONLY_VIDEOS]), seen),
+  ]);
+  const mixed: Video[] = [];
+  for (let i = 0; i < Math.max(fresh.length, old.length); i++) {
+    if (fresh[i]) mixed.push(fresh[i]);
+    if (old[i]) mixed.push(old[i]);
+  }
+  // пустую выдачу не кэшируем: скорее всего, ютуб временно не пустил — пусть следующий раунд попробует снова
+  if (mixed.length) await kvSet(key, JSON.stringify(mixed), SEARCH_TTL).catch(() => {});
+  return mixed;
+}
+
 /**
- * Самые непросматриваемые видео по запросу: свежие и 10+ лет, через одно.
+ * Самые непросматриваемые видео по запросу, кроме exclude.
  * Видео, для которых prefer вернул true, идут вперёд, порядок внутри групп сохраняется.
+ * Первым ставится первое из всей выдачи видео, подошедшее под lead, — даже если иначе оно не влезло бы в limit.
  */
 export async function search(
   query: string,
   limit = 30,
   exclude?: Set<string>,
   prefer?: (v: Video) => boolean,
+  lead?: (v: Video) => boolean,
 ): Promise<Video[]> {
-  const seen = new Set<string>(exclude);
-  const [fresh, old] = await Promise.all([
-    collect(FILTERS.map((sp) => [query, sp]), seen),
-    collect(oldQueries(query).map((q) => [q, ONLY_VIDEOS]), seen),
-  ]);
-
-  const mixed: Video[] = [];
-  for (let i = 0; i < Math.max(fresh.length, old.length); i++) {
-    if (fresh[i]) mixed.push(fresh[i]);
-    if (old[i]) mixed.push(old[i]);
-  }
+  const mixed = (await searchAll(query)).filter((v) => !exclude?.has(v.id));
   const sorted = prefer ? [...mixed.filter(prefer), ...mixed.filter((v) => !prefer(v))] : mixed;
+  const leadAt = lead ? sorted.findIndex(lead) : -1;
+  if (leadAt > 0) sorted.unshift(...sorted.splice(leadAt, 1));
   const result = sorted.slice(0, limit);
   await Promise.all(result.map(resolveThumb));
   return result;

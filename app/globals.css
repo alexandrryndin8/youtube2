@@ -1,5 +1,8 @@
 @import "tailwindcss";
 
+/* dark: включается атрибутом data-theme="dark" на <html>, а не системной настройкой */
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
 /* палитра старого ютуба (~2020) */
 :root {
   --background: #f9f9f9;
@@ -9,11 +12,42 @@
   --line: #e5e5e5;
   --field-line: #cccccc;
   --button-bg: #f8f8f8;
+  --hover: #f0f0f0;
+  --disabled-bg: #ececec;
+  --disabled-fg: #909090;
   --yt-red: #ff0000;
   --subscribe: #cc0000;
   --link: #065fd4;
   --sign-in: #1c62b9;
   --player: #000000;
+  --warn-bg: #fff4ce;
+  --warn-fg: #6b5000;
+  --warn-line: #d6b656;
+  --warn-hover: #ffeaa0;
+  --ad-link: #1f1fa0;
+  --ad-hover: #cc0000;
+}
+
+/* тёмная тема ютуба того же времени */
+[data-theme="dark"] {
+  --background: #181818;
+  --surface: #212121;
+  --foreground: #ffffff;
+  --muted: #aaaaaa;
+  --line: #303030;
+  --field-line: #555555;
+  --button-bg: #313131;
+  --hover: #2a2a2a;
+  --disabled-bg: #303030;
+  --disabled-fg: #717171;
+  --link: #3ea6ff;
+  --sign-in: #3ea6ff;
+  --warn-bg: #3b3115;
+  --warn-fg: #f2d675;
+  --warn-line: #7a6420;
+  --warn-hover: #4a3d1a;
+  --ad-link: #8fa8ff;
+  --ad-hover: #ff6b6b;
 }
 
 @theme inline {
@@ -24,16 +58,118 @@
   --color-line: var(--line);
   --color-field-line: var(--field-line);
   --color-button-bg: var(--button-bg);
+  --color-hover: var(--hover);
+  --color-disabled-bg: var(--disabled-bg);
+  --color-disabled-fg: var(--disabled-fg);
   --color-yt-red: var(--yt-red);
   --color-subscribe: var(--subscribe);
   --color-link: var(--link);
   --color-sign-in: var(--sign-in);
   --color-player: var(--player);
+  --color-warn-bg: var(--warn-bg);
+  --color-warn-fg: var(--warn-fg);
+  --color-warn-line: var(--warn-line);
+  --color-warn-hover: var(--warn-hover);
+  --color-ad-link: var(--ad-link);
+  --color-ad-hover: var(--ad-hover);
   --font-sans: var(--font-roboto), Arial, sans-serif;
+
+  --animate-theme-icon: theme-icon 500ms cubic-bezier(0.34, 1.56, 0.64, 1);
+  --animate-toast-in: toast-in 350ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  --animate-pop-in: pop-in 350ms cubic-bezier(0.34, 1.56, 0.64, 1) both;
+  --animate-gold-pop: gold-pop 600ms cubic-bezier(0.34, 1.56, 0.64, 1) both;
+  --animate-gold-shake: gold-shake 900ms ease-in-out 600ms infinite;
+  --animate-gold-shine: gold-shine 2.5s linear infinite;
+  --animate-gold-glow: gold-glow 1.2s ease-in-out infinite alternate;
+  --animate-confetti: confetti var(--confetti-time, 3s) linear var(--confetti-delay, 0s) infinite;
+
+  @keyframes theme-icon {
+    from {
+      transform: rotate(-180deg) scale(0.3);
+      opacity: 0;
+    }
+  }
+  @keyframes pop-in {
+    from {
+      transform: scale(0.6);
+      opacity: 0;
+    }
+  }
+  @keyframes toast-in {
+    from {
+      transform: translateX(calc(100% + 16px));
+    }
+  }
+  @keyframes gold-pop {
+    0% {
+      transform: scale(0.2) rotate(-12deg);
+      opacity: 0;
+    }
+    70% {
+      transform: scale(1.08) rotate(2deg);
+      opacity: 1;
+    }
+  }
+  @keyframes gold-shake {
+    0%,
+    100% {
+      transform: rotate(0) scale(1);
+    }
+    25% {
+      transform: rotate(-3deg) scale(1.06);
+    }
+    75% {
+      transform: rotate(3deg) scale(1.06);
+    }
+  }
+  @keyframes gold-shine {
+    from {
+      background-position: 200% 0;
+    }
+    to {
+      background-position: -200% 0;
+    }
+  }
+  @keyframes gold-glow {
+    from {
+      box-shadow:
+        0 0 20px 4px rgba(255, 200, 0, 0.6),
+        0 0 0 4px #b8860b;
+    }
+    to {
+      box-shadow:
+        0 0 60px 16px rgba(255, 215, 0, 0.9),
+        0 0 0 4px #ffd700;
+    }
+  }
+  @keyframes confetti {
+    from {
+      transform: translateY(-10vh) rotate(0);
+    }
+    to {
+      transform: translateY(110vh) rotate(720deg);
+    }
+  }
+}
+
+/* смена темы: новая расходится кругом от кнопки (круг анимирует ThemeToggle), без стандартного кроссфейда */
+html.theme-switching::view-transition-old(root),
+html.theme-switching::view-transition-new(root) {
+  animation: none;
+  mix-blend-mode: normal;
+}
+
+/* новая тема спрятана с первого кадра — иначе она мелькает целиком, пока не стартовал круг */
+html.theme-switching::view-transition-new(root) {
+  clip-path: circle(0px at var(--reveal-x) var(--reveal-y));
 }
 
 html {
   color-scheme: light;
+}
+
+html[data-theme="dark"] {
+  color-scheme: dark;
 }
 
 body {

@@ -1,4 +1,7 @@
 import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
+import type { Difficulty } from "./difficulty";
+import { kvGet, kvSet } from "./kv";
+import type { Pack } from "./packs";
 import { englishFor } from "./translations";
 import { randomNoun } from "./words";
 import { search, type Video } from "./youtube";
@@ -14,7 +17,7 @@ const KEY = process.env.ROUND_SECRET
   ? Buffer.from(process.env.ROUND_SECRET.padEnd(32, "0").slice(0, 32))
   : (g.roundKey ??= randomBytes(32));
 
-export type Secret = { word: string; titles: string[]; ids: string[] };
+export type Secret = { word: string; titles: string[]; ids: string[]; difficulty?: Difficulty };
 
 export function encryptSecret(secret: Secret): string {
   const iv = randomBytes(12);
@@ -126,28 +129,58 @@ function mentions(video: Video, word: string): boolean {
   return censor(text, word) !== text;
 }
 
-// видео, уже показанные в прошлых раундах, — чтобы одно и то же не лезло по кругу
-const SHOWN_MAX = 5000;
-const shown = new Set<string>();
-
-function rememberShown(videos: Video[]) {
-  for (const v of videos) shown.add(v.id);
-  for (const id of shown) {
-    if (shown.size <= SHOWN_MAX) break;
-    shown.delete(id);
-  }
+/**
+ * Годится в первое превью: слово стоит в самом названии (там будет ■■■),
+ * и кроме него есть хоть одно открытое слово — иначе по названию нечего угадывать.
+ */
+function goodLead(video: Video, word: string): boolean {
+  const censored = censor(video.title, word);
+  return censored !== video.title && /[\p{L}\p{N}]/u.test(censored);
 }
 
-/** Рандомное существительное и до 5 превью по нему; если ютуб мало нашёл — пробуем другое слово. */
-export async function newRound(): Promise<{ word: string; videos: Video[] }> {
-  let best: { word: string; videos: Video[] } = { word: "", videos: [] };
-  for (let i = 0; i < 3; i++) {
-    const word = randomNoun();
+// видео, уже показанные в прошлых раундах по этому слову, — чтобы одно и то же не лезло по кругу.
+// В хранилище, а не в памяти: на Vercel у каждого экземпляра функции память своя
+const SHOWN_MAX = 200;
+const SHOWN_TTL = 30 * 24 * 60 * 60;
+const shownKey = (word: string) => `yt:shown:${word}`;
+
+async function shownFor(word: string): Promise<string[]> {
+  const raw = await kvGet(shownKey(word)).catch(() => null);
+  return raw ? JSON.parse(raw) : [];
+}
+
+async function rememberShown(word: string, before: string[], videos: Video[]) {
+  const ids = [...before, ...videos.map((v) => v.id)].slice(-SHOWN_MAX);
+  await kvSet(shownKey(word), JSON.stringify(ids), SHOWN_TTL).catch(() => {});
+}
+
+/**
+ * Рандомное существительное и до 5 превью по нему. Первое превью всегда с зацензуренным словом
+ * в названии (см. goodLead); если такого нет или ютуб мало нашёл — пробуем другое слово.
+ * pack — тематический набор слов от читкода.
+ */
+export async function newRound(pack?: Pack): Promise<{ word: string; videos: Video[] }> {
+  let best = { word: "", videos: [] as Video[], lead: false, shown: [] as string[] };
+  for (let i = 0; i < 5; i++) {
+    const word = randomNoun(pack);
+    const shown = await shownFor(word);
     // ютуб добивает скудную выдачу роликами, где слова нет вообще — такие в конец
-    const videos = await search(word, MAX_PREVIEWS, shown, (v) => mentions(v, word));
-    if (videos.length > best.videos.length) best = { word, videos };
-    if (videos.length >= MAX_PREVIEWS) break;
+    const videos = await search(
+      word,
+      MAX_PREVIEWS,
+      new Set(shown),
+      (v) => mentions(v, word),
+      (v) => goodLead(v, word),
+    );
+    const lead = videos.length > 0 && goodLead(videos[0], word);
+    // слово с хорошим первым превью важнее, чем лишние ролики
+    if ((lead && !best.lead) || (lead === best.lead && videos.length > best.videos.length)) {
+      best = { word, videos, lead, shown };
+    }
+    if (lead && videos.length >= MAX_PREVIEWS) break;
+    // полную выдачу ищем 3 попытки, ещё 2 — только если первого превью так и нет
+    if (i >= 2 && best.lead) break;
   }
-  rememberShown(best.videos);
-  return best;
+  if (best.videos.length) await rememberShown(best.word, best.shown, best.videos);
+  return { word: best.word, videos: best.videos };
 }

@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { Roboto } from "next/font/google";
+import { THEME_SCRIPT } from "@/lib/theme";
 import "./globals.css";
 
 const roboto = Roboto({
@@ -14,12 +15,26 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: "#ffffff",
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#ffffff" },
+    { media: "(prefers-color-scheme: dark)", color: "#212121" },
+  ],
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
-    <html lang="ru" className={`${roboto.variable} h-full antialiased`}>
+    // тему ставит инлайн-скрипт до гидрации — React не должен ругаться на data-theme
+    <html
+      lang="ru"
+      data-theme="light"
+      // плавная прокрутка по якорям (#rules), а переходы между страницами Next оставляет мгновенными
+      data-scroll-behavior="smooth"
+      className={`${roboto.variable} h-full scroll-smooth antialiased`}
+      suppressHydrationWarning
+    >
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: THEME_SCRIPT }} />
+      </head>
       <body className="min-h-full flex flex-col font-sans">{children}</body>
     </html>
   );

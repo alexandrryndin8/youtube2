@@ -1,4 +1,7 @@
 // Загадываемые слова: существительные из botgovno/words.py, мат и лексика майнкрафт-летсплеев.
+import type { Pack } from "./packs";
+import { EXTRA } from "./words-extra";
+
 const BASE = `
   абрикос авокадо автобус автомойка агентство адвокат админ актриса акула амбар
   ананас антенна апельсин аптека арахис арбуз астероид асфальт ателье аэропорт
@@ -91,7 +94,14 @@ const SWEARS = `
   ебальник уёбок ебанат пиздюк хуесос гандон мразь падла сволочь говнюк срака херня
   пиздабол пиздёж хуило мандавошка дерьмо засранец жополиз очко писька варган очки шипцы блять 
   заколка пидор педик бубенцы сифон металлург кракен сиськи попки следопыт липучка дезадорант 
-  мудя баребух контрацептив макдональдс макдак херобрин мандавошка макдонлс 
+  мудя баребух контрацептив макдональдс макдак херобрин мандавошка макдонлс
+  молофья сушняк чмо курдюк минет сосалка шлюха отсос пиздализ сперма даун аутист ебанько
+  шлем домашка уретра проктолог куколд раздача жижи жижа лакиблок алкаш чмошник барбос
+  бухло самоотсос пикник анчоус лавомерка броненосец прыгун шрек фиксики папус говноед
+  шалаш шавуха шалава бульк чифир курт кавардак погром козявка сопля залысина детдом
+  мастурбация дилдо елда елдак пирсинг патлы порно секс пердак привет здравствуйте бро
+  дрозд самогон гной геноцид педофил меф жиробас жировик пукан наруто маджонг узбек
+  горохострел трансформер пердеж кент кореш поставка кал щегол жид негр чурка
 `;
 
 // майнкрафт и летсплеи
@@ -104,8 +114,89 @@ const MINECRAFT = `
   челлендж
 `;
 
-const NOUNS = [BASE, SWEARS, MINECRAFT].join(" ").split(/\s+/).filter(Boolean);
+const words = (...lists: string[]) => [...new Set(lists.join(" ").split(/\s+/).filter(Boolean))];
 
-export function randomNoun(): string {
-  return NOUNS[Math.floor(Math.random() * NOUNS.length)];
+// отобранные руками — самые смешные и угадываемые, их в каждом списке побольше
+const CURATED = words(BASE, SWEARS, MINECRAFT);
+const curatedSet = new Set(CURATED);
+const BIG = words(EXTRA).filter((w) => !curatedSet.has(w));
+
+// наборы, которые включаются читкодами
+const PACK_NOUNS: Record<Pack, string[]> = {
+  minecraft: words(MINECRAFT),
+};
+
+// Список слов обновляется каждые 3 часа: свежая выборка из отобранных и большого словаря.
+// Внутри списка слова идут без повторов, а недавно загаданные не попадают и в следующие списки.
+const ROTATION_MS = 3 * 60 * 60 * 1000;
+const FROM_CURATED = 300;
+const FROM_BIG = 600;
+// столько последних слов не повторяем — больше, чем влезает в один список
+const RECENT_MAX = 3000;
+
+type Bag = { key: string; left: string[] };
+
+// в памяти процесса; globalThis — чтобы роуты и перевыполнение модуля в dev делили одно состояние
+const g = globalThis as { wordBags?: Map<string, Bag>; recentWords?: Set<string> };
+const bags = (g.wordBags ??= new Map());
+const recent = (g.recentWords ??= new Set());
+
+/** Детерминированный генератор (mulberry32): у одного 3-часового окна — один и тот же список. */
+function seeded(seed: number) {
+  return () => {
+    seed = (seed + 0x6d2b79f5) | 0;
+    let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function shuffle<T>(list: T[], rand: () => number = Math.random): T[] {
+  const a = list.slice();
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(rand() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+/** Список на текущее окно: случайные слова из обоих словарей, кроме недавно загаданных. */
+function rotationList(slot: number): string[] {
+  const rand = seeded(slot);
+  const fresh = (list: string[], n: number) => shuffle(list, rand).filter((w) => !recent.has(w)).slice(0, n);
+  return [...fresh(CURATED, FROM_CURATED), ...fresh(BIG, FROM_BIG)];
+}
+
+/** Следующее слово из мешка: перемешанный список, тянем по одному, пока не кончится. */
+function draw(id: string, key: string, fill: () => string[]): string {
+  let bag = bags.get(id);
+  if (!bag || bag.key !== key || !bag.left.length) {
+    let list = fill();
+    // всё недавно было — начинаем память о повторах заново
+    if (!list.length) {
+      recent.clear();
+      list = fill();
+    }
+    bag = { key, left: shuffle(list) };
+    bags.set(id, bag);
+  }
+  return bag.left.pop()!;
+}
+
+function remember(word: string) {
+  recent.delete(word);
+  recent.add(word);
+  for (const w of recent) {
+    if (recent.size <= RECENT_MAX) break;
+    recent.delete(w);
+  }
+}
+
+/** Случайное слово без повторов: из списка на текущие 3 часа, а с читкодом — из его набора по кругу. */
+export function randomNoun(pack?: Pack): string {
+  if (pack) return draw(`pack:${pack}`, pack, () => PACK_NOUNS[pack]);
+  const slot = Math.floor(Date.now() / ROTATION_MS);
+  const word = draw("all", String(slot), () => rotationList(slot));
+  remember(word);
+  return word;
 }
